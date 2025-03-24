@@ -4,28 +4,14 @@ import polars as pl
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from tqdm import tqdm
-from scipy.stats import normaltest
-
-
-# algorithms
-import math
-import itertools
 
 # machine learning
-from sklearn.base import is_classifier, clone
-from sklearn.model_selection import train_test_split, KFold
-from sklearn.metrics import root_mean_squared_error, r2_score, log_loss, accuracy_score
+from sklearn.model_selection import train_test_split, KFold, cross_val_score, cross_val_predict
+from sklearn.metrics import root_mean_squared_error
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.svm import SVR, SVC
-from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
-from xgboost import XGBRegressor, XGBClassifier
-import torch
-import torch.nn as nn
-import torch.optim as optim
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LinearRegression
+from xgboost import XGBRegressor
 from bayes_opt import BayesianOptimization
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
@@ -93,6 +79,169 @@ def show_unique_vals_and_dtypes(df):
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
 
+def plot_hist_with_annot(df, col, bins=None, vertical_lines=None, color='blue'):
+    """
+    Plots a histogram of a column and optionally adds vertical lines with percentage annotations.
+
+    Args:
+    - df (pd.DataFrame): DataFrame containing the data.
+    - col (str): Column name to plot.
+    - bins (int, optional): Number of bins in the histogram. Default is the square root of the number of rows in the DataFrame.
+    - vertical_lines (list[int], optional): List of x-values where vertical lines should be drawn. Defaults to None.
+
+    Returns:
+    - None
+    """
+
+    # default bins (square root of number of rows)
+    if bins is None:
+        bins = int(np.sqrt(df.shape[0]))
+
+    # get data
+    data = df[col]
+
+    # plot histogram
+    ax = data.plot(kind='hist', bins=bins, figsize=(18, 9), title=f'{col} Distribution', color=color)
+
+    # add vertical lines
+    if vertical_lines:
+        # sort vertical lines to ensure correct region division
+        vertical_lines = sorted(vertical_lines)
+        
+        # add vertical lines
+        for x in vertical_lines:
+            plt.axvline(x=x, color='black', linestyle='dashed', linewidth=2)
+        
+        # compute percentages for each region
+        total_count = len(data)
+        prev_x = 0
+        for x in vertical_lines + [data.max()]:  # include max value as final boundary
+            region_pct = ((data >= prev_x) & (data < x)).sum() / total_count * 100
+            plt.text((prev_x + x) / 2, ax.get_ylim()[1] * 0.9, f'{region_pct:.1f}%', 
+                     color='black', fontsize=12, ha='center')
+            prev_x = x
+    plt.show()
 
 
+#-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
 
+def show_first_last_rows(df, id):
+    """
+    Display the first and last rows of a DataFrame.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame to display.
+    - id (int): The number of rows to display from the start and end of the DataFrame.
+
+    Returns:
+    - None
+    """
+
+    # display first and last rows
+    rows = pd.concat([df[df.id == id].head(1), df[df.id == id].tail(1)])
+    display(rows)
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
+
+def create_features(df):
+    """
+    Aggregate log data.
+
+    Args:
+    - df (pd.DataFrame): DataFrame containing the data.
+
+    Returns:
+    - features (pd.DataFrame): DataFrame containing aggregated data.
+    """
+
+    # convert to polars
+    df_pl = pl.from_pandas(df)
+
+    # Compute team stats efficiently
+    features = (
+        df_pl.group_by("id")
+        .agg([
+            # 1. "start_delay": first "down_time" in the sorted group
+            pl.col("down_time").sort_by("event_id").first().alias("start_delay"),
+            
+            # 2. "tot_time": total of "action_time" across the group
+            pl.col("action_time").sum().alias("tot_time"),
+            
+            # 3. "num_actions": count of rows in the group
+            pl.len().alias("num_actions"),
+            
+            # 4. "mean_action_time": mean of "action_time"
+            pl.col("action_time").mean().alias("mean_action_time"),
+            
+            # 5. "std_action_time": standard deviation of "action_time"
+            pl.col("action_time").std().alias("std_action_time"),
+            
+            # 6. Proportions for each activity category:
+            ((pl.col("activity").sort_by("event_id") == "Nonproduction").mean()).alias("prop_nonproduction"),
+            ((pl.col("activity").sort_by("event_id") == "Input").mean()).alias("prop_input"),
+            ((pl.col("activity").sort_by("event_id") == "Remove/Cut").mean()).alias("prop_remove_cut"),
+            ((pl.col("activity").sort_by("event_id") == "Replace").mean()).alias("prop_replace"),
+            ((pl.col("activity").sort_by("event_id") == "Move").mean()).alias("prop_move"),
+            ((pl.col("activity").sort_by("event_id") == "Paste").mean()).alias("prop_paste"),
+            
+            # 7. "cursor_retraction": count the number of times "cursor_position" decreases
+            pl.col("cursor_position")
+                .sort_by("event_id")
+                .diff()
+                .fill_null(0)
+                .lt(0)
+                .sum()
+                .alias("cursor_retraction"),
+            
+            # 8. "word_retraction": count the number of times "word_count" decreases
+            pl.col("word_count")
+                .sort_by("event_id")
+                .diff()
+                .fill_null(0)
+                .lt(0)
+                .sum()
+                .alias("word_retraction"),
+            
+            # 9. "final_word_count": get the last "word_count" after sorting
+            pl.col("word_count").sort_by("event_id").last().alias("final_word_count"),
+
+            # final word_count squared
+            pl.col("word_count").sort_by("event_id").last().pow(2).alias("final_word_count_squared")
+        ])
+    )
+
+    # convert back to pandas
+    return features.to_pandas()
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
+
+# define the objective function for bayes_opt
+def xgb_cv(max_depth, n_estimators, learning_rate, gamma, min_child_weight, subsample, colsample_bytree, colsample_bylevel, colsample_bynode, X, y):
+    """
+    Objective function for XGBoost hyperparameter tuning using Bayesian Optimization.
+    """
+
+    params = {
+        'max_depth': int(max_depth),
+        'n_estimators': int(n_estimators),
+        'learning_rate': learning_rate,
+        'gamma': gamma,
+        'min_child_weight': min_child_weight,
+        'subsample': subsample,
+        'colsample_bytree': colsample_bytree,
+        'colsample_bylevel': colsample_bylevel,
+        'colsample_bynode': colsample_bynode,
+        'objective': 'reg:squarederror',
+        'eval_metric': 'rmse',
+        'random_state': SEED 
+    }
+
+    # create pipeline
+    pipeline = Pipeline([('scaler', MinMaxScaler()), ('model', XGBRegressor(**params))])
+
+    # 10-fold cross-validation
+    kf = KFold(n_splits=10, shuffle=True, random_state=SEED)
+    scores = cross_val_score(pipeline, X, y, cv=kf, scoring='neg_root_mean_squared_error')
+
+    # return mean 10-fold cross-validation score
+    return scores.mean()
