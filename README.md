@@ -14,8 +14,7 @@ There were no null values in the data.
 - **Model:** XGBoost Regressor  
 - **Hyperparameter Tuning:** Bayesian Optimization with 110 iterations  
 - **Results:**
-    - 0.7014 RMSE on a 20% unseen test set.
-    - Final Kaggle submission achieved **80.12% accuracy**.
+    - Final RMSE of 0.7014 on a 20% unseen test set.
 
 ## Files
 - 📊 analysis.ipynb – EDA, feature engineering, model iteration, and final submission.
@@ -24,7 +23,7 @@ There were no null values in the data.
 
 ## Repository Structure
 ```
-/spaceship_titanic
+/writing_processes
 ├── analysis.ipynb
 ├── helper.py
 ├── /submission.csv
