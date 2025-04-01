@@ -122,7 +122,6 @@ def plot_hist_with_annot(df, col, bins=None, vertical_lines=None, color='blue'):
             prev_x = x
     plt.show()
 
-
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
 
 def show_first_last_rows(df, id):
@@ -205,7 +204,7 @@ def create_features(df):
             # 9. "final_word_count": get the last "word_count" after sorting
             pl.col("word_count").sort_by("event_id").last().alias("final_word_count"),
 
-            # final word_count squared
+            # 10. final word_count squared
             pl.col("word_count").sort_by("event_id").last().pow(2).alias("final_word_count_squared")
         ])
     )
@@ -215,12 +214,20 @@ def create_features(df):
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
 
-# define the objective function for bayes_opt
 def xgb_cv(max_depth, n_estimators, learning_rate, gamma, min_child_weight, subsample, colsample_bytree, colsample_bylevel, colsample_bynode, X, y):
     """
     Objective function for XGBoost hyperparameter tuning using Bayesian Optimization.
+
+    Args:
+    - XGBRegressor params: Hyperparameters for the XGBoost model.
+    - X (pd.DataFrame): Feature DataFrame.
+    - y (pd.Series): Target variable.
+
+    Returns:
+    - scores.mean (float): Mean 10-fold cross-validation score (negative RMSE).
     """
 
+    # define parameters
     params = {
         'max_depth': int(max_depth),
         'n_estimators': int(n_estimators),
