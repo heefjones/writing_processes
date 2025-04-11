@@ -153,15 +153,15 @@ def create_features(df):
     - features (pd.DataFrame): DataFrame containing aggregated data.
     """
 
-    # convert to polars
-    df_pl = pl.from_pandas(df)
+    # convert to polars and sort
+    df_pl = pl.from_pandas(df).sort(by=["id", "event_id"])
 
     # Compute team stats efficiently
     features = (
         df_pl.group_by("id")
         .agg([
             # 1. "start_delay": first "down_time" in the sorted group
-            pl.col("down_time").sort_by("event_id").first().alias("start_delay"),
+            pl.col("down_time").first().alias("start_delay"),
             
             # 2. "tot_time": total of "action_time" across the group
             pl.col("action_time").sum().alias("tot_time"),
@@ -176,16 +176,15 @@ def create_features(df):
             pl.col("action_time").std().alias("std_action_time"),
             
             # 6. Proportions for each activity category:
-            ((pl.col("activity").sort_by("event_id") == "Nonproduction").mean()).alias("prop_nonproduction"),
-            ((pl.col("activity").sort_by("event_id") == "Input").mean()).alias("prop_input"),
-            ((pl.col("activity").sort_by("event_id") == "Remove/Cut").mean()).alias("prop_remove_cut"),
-            ((pl.col("activity").sort_by("event_id") == "Replace").mean()).alias("prop_replace"),
-            ((pl.col("activity").sort_by("event_id") == "Move").mean()).alias("prop_move"),
-            ((pl.col("activity").sort_by("event_id") == "Paste").mean()).alias("prop_paste"),
+            ((pl.col("activity") == "Nonproduction").mean()).alias("prop_nonproduction"),
+            ((pl.col("activity") == "Input").mean()).alias("prop_input"),
+            ((pl.col("activity") == "Remove/Cut").mean()).alias("prop_remove_cut"),
+            ((pl.col("activity") == "Replace").mean()).alias("prop_replace"),
+            ((pl.col("activity") == "Move").mean()).alias("prop_move"),
+            ((pl.col("activity") == "Paste").mean()).alias("prop_paste"),
             
             # 7. "cursor_retraction": count the number of times "cursor_position" decreases
             pl.col("cursor_position")
-                .sort_by("event_id")
                 .diff()
                 .fill_null(0)
                 .lt(0)
@@ -194,7 +193,6 @@ def create_features(df):
             
             # 8. "word_retraction": count the number of times "word_count" decreases
             pl.col("word_count")
-                .sort_by("event_id")
                 .diff()
                 .fill_null(0)
                 .lt(0)
@@ -202,10 +200,10 @@ def create_features(df):
                 .alias("word_retraction"),
             
             # 9. "final_word_count": get the last "word_count" after sorting
-            pl.col("word_count").sort_by("event_id").last().alias("final_word_count"),
+            pl.col("word_count").last().alias("final_word_count"),
 
             # 10. final word_count squared
-            pl.col("word_count").sort_by("event_id").last().pow(2).alias("final_word_count_squared")
+            pl.col("word_count").last().pow(2).alias("final_word_count_squared")
         ])
     )
 
