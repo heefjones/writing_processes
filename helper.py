@@ -118,7 +118,8 @@ def plot_hist_with_annot(df, col, bins=None, vertical_lines=None, color='blue'):
         for x in vertical_lines + [data.max()]:  # include max value as final boundary
             region_pct = ((data >= prev_x) & (data < x)).sum() / total_count * 100
             plt.text((prev_x + x) / 2, ax.get_ylim()[1] * 0.9, f'{region_pct:.1f}%', 
-                     color='black', fontsize=12, ha='center')
+                     color='black', fontsize=12, ha='center', va='center', 
+                     bbox=dict(facecolor='white', alpha=0.8))
             prev_x = x
     plt.show()
 
