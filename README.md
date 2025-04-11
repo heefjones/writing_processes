@@ -26,6 +26,6 @@ There were no null values in the data.
 /writing_processes
 ├── analysis.ipynb
 ├── helper.py
-├── /submission.csv
+├── submission.csv
 └── README.md
 ```
